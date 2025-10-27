@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Annotated
 
 from pydantic import BaseModel, Field
 
@@ -44,12 +43,12 @@ class DiscoveryResult(BaseModel):
     def get_file(self, file_path: str) -> TestFile | None:
         """Get a test file by path"""
         return next((f for f in self.test_files if f.path == file_path), None)
-    
+
     def get_changed_files(self) -> list[str]:
         """Get list of file paths that have changed"""
         return [
-            f.path 
-            for f in self.test_files 
+            f.path
+            for f in self.test_files
             if f.status in [FileStatus.CREATED, FileStatus.UPDATED]
         ]
 
@@ -102,14 +101,14 @@ class ExtractionResult(BaseModel):
     repository: str
     summary: ExtractionSummary
     test_analysis: list[TestFileAnalysis]
-    
+
     def get_blocks_for_file(self, file_path: str) -> list[TestBlock]:
         """Get all blocks from a specific file"""
         for analysis in self.test_analysis:
             if analysis.source_file == file_path:
                 return analysis.test_blocks
         return []
-    
+
     def get_high_potential_blocks(self) -> list[TestBlock]:
         """Get blocks with high example potential"""
         blocks = []
@@ -205,7 +204,7 @@ class DistillationResult(BaseModel):
     examples: list[ExamplePlan]
     summary: DistillationSummary
     refinement_history: list[RefinementHistoryEntry] = Field(default_factory=list)
-    
+
     def get_plan(self, example_id: str) -> ExamplePlan | None:
         """Get a specific example plan by ID"""
         return next((p for p in self.examples if p.example_id == example_id), None)
@@ -248,14 +247,14 @@ class GenerationResult(BaseModel):
     examples: list[GeneratedExample]
     summary: GenerationSummary
     refinement_history: list[RefinementHistoryEntry] = Field(default_factory=list)
-    
+
     def get_example(self, example_id: str) -> GeneratedExample | None:
         """Get a specific generated example by ID"""
         return next(
-            (e for e in self.examples if e.example_id == example_id), 
+            (e for e in self.examples if e.example_id == example_id),
             None
         )
-    
+
     def get_successful_examples(self) -> list[GeneratedExample]:
         """Get all successfully generated examples"""
         return [e for e in self.examples if e.status == "generated"]
@@ -320,17 +319,17 @@ class QualityResult(BaseModel):
     should_trigger_refinement: bool
     refinement_reason: str = ""
     recommendations: list[str] = Field(default_factory=list)
-    
+
     def get_critical_issues(self) -> list[QualityIssue]:
         """Get all critical/high severity issues across all examples"""
         issues = []
         for example_issues in self.validation_results.issues_by_example:
             issues.extend([
-                i for i in example_issues.issues 
+                i for i in example_issues.issues
                 if i.severity in ["critical", "high"]
             ])
         return issues
-    
+
     def get_issues_for_example(self, example_id: str) -> list[QualityIssue]:
         """Get issues for a specific example"""
         for example_issues in self.validation_results.issues_by_example:

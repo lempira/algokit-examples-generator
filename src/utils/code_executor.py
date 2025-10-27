@@ -13,7 +13,7 @@ class ExecutionResult:
     stderr: str
     exit_code: int
     error_message: str | None = None
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return {
@@ -27,10 +27,10 @@ class ExecutionResult:
 
 class CodeExecutor:
     """Executes generated example code"""
-    
+
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
-    
+
     async def run(self, example_path: Path) -> ExecutionResult:
         """Execute an example
         
@@ -41,7 +41,7 @@ class CodeExecutor:
             ExecutionResult with execution details
         """
         return self.run_sync(example_path)
-    
+
     def run_sync(self, example_path: Path) -> ExecutionResult:
         """Synchronous version of run
         
@@ -58,7 +58,7 @@ class CodeExecutor:
                 exit_code=-1,
                 error_message=f"Example path does not exist: {example_path}"
             )
-        
+
         # Detect example type and execution strategy
         if (example_path / "package.json").exists():
             return self._run_node_example(example_path)
@@ -76,7 +76,7 @@ class CodeExecutor:
                 exit_code=-1,
                 error_message="No recognized entry point found (package.json, main.py, etc.)"
             )
-    
+
     def _run_node_example(self, example_path: Path) -> ExecutionResult:
         """Run a Node.js/TypeScript example"""
         try:
@@ -88,7 +88,7 @@ class CodeExecutor:
                 text=True,
                 timeout=self.timeout
             )
-            
+
             if install_result.returncode != 0:
                 return ExecutionResult(
                     success=False,
@@ -97,7 +97,7 @@ class CodeExecutor:
                     exit_code=install_result.returncode,
                     error_message="npm install failed"
                 )
-            
+
             # Run the example (try npm start, then npm run dev)
             for command in [["npm", "start"], ["npm", "run", "dev"]]:
                 run_result = subprocess.run(
@@ -107,7 +107,7 @@ class CodeExecutor:
                     text=True,
                     timeout=self.timeout
                 )
-                
+
                 if run_result.returncode == 0:
                     return ExecutionResult(
                         success=True,
@@ -115,7 +115,7 @@ class CodeExecutor:
                         stderr=run_result.stderr,
                         exit_code=run_result.returncode
                     )
-            
+
             return ExecutionResult(
                 success=False,
                 stdout=run_result.stdout,
@@ -123,7 +123,7 @@ class CodeExecutor:
                 exit_code=run_result.returncode,
                 error_message="npm start/dev failed"
             )
-            
+
         except subprocess.TimeoutExpired:
             return ExecutionResult(
                 success=False,
@@ -140,7 +140,7 @@ class CodeExecutor:
                 exit_code=-1,
                 error_message=f"Execution error: {str(e)}"
             )
-    
+
     def _run_python_example(self, example_path: Path) -> ExecutionResult:
         """Run a Python example with dependencies"""
         try:
@@ -152,7 +152,7 @@ class CodeExecutor:
                 text=True,
                 timeout=self.timeout
             )
-            
+
             if install_result.returncode != 0:
                 return ExecutionResult(
                     success=False,
@@ -161,10 +161,10 @@ class CodeExecutor:
                     exit_code=install_result.returncode,
                     error_message="pip install failed"
                 )
-            
+
             # Run main.py
             return self._run_python_file(example_path / "main.py")
-            
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
@@ -173,7 +173,7 @@ class CodeExecutor:
                 exit_code=-1,
                 error_message=f"Execution error: {str(e)}"
             )
-    
+
     def _run_python_file(self, file_path: Path) -> ExecutionResult:
         """Run a single Python file"""
         try:
@@ -183,14 +183,14 @@ class CodeExecutor:
                 text=True,
                 timeout=self.timeout
             )
-            
+
             return ExecutionResult(
                 success=result.returncode == 0,
                 stdout=result.stdout,
                 stderr=result.stderr,
                 exit_code=result.returncode
             )
-            
+
         except subprocess.TimeoutExpired:
             return ExecutionResult(
                 success=False,
@@ -207,7 +207,7 @@ class CodeExecutor:
                 exit_code=-1,
                 error_message=f"Execution error: {str(e)}"
             )
-    
+
     def _run_typescript_file(self, file_path: Path) -> ExecutionResult:
         """Run a TypeScript file"""
         try:
@@ -217,14 +217,14 @@ class CodeExecutor:
                 text=True,
                 timeout=self.timeout
             )
-            
+
             return ExecutionResult(
                 success=result.returncode == 0,
                 stdout=result.stdout,
                 stderr=result.stderr,
                 exit_code=result.returncode
             )
-            
+
         except subprocess.TimeoutExpired:
             return ExecutionResult(
                 success=False,
