@@ -1,6 +1,6 @@
 """Graph nodes for each workflow phase"""
 
 from .discovery import DiscoveryNode
+from .extraction import ExtractionNode
 
-__all__ = ["DiscoveryNode"]
-
+__all__ = ["DiscoveryNode", "ExtractionNode"]
