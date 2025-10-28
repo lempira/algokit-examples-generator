@@ -5,6 +5,7 @@ from .distillation import DistillationNode
 from .extraction import ExtractionNode
 from .generation import GenerationNode
 from .quality import QualityNode
+from .refinement import RefinementNode
 
 __all__ = [
     "DiscoveryNode",
@@ -12,4 +13,5 @@ __all__ = [
     "DistillationNode",
     "GenerationNode",
     "QualityNode",
+    "RefinementNode",
 ]
