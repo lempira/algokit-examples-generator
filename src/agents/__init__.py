@@ -2,5 +2,7 @@
 
 from .distillation import DistillationAgent
 from .extraction import ExtractionAgent
+from .generation import GenerationAgent
+from .quality import QualityAgent
 
-__all__ = ["ExtractionAgent", "DistillationAgent"]
+__all__ = ["ExtractionAgent", "DistillationAgent", "GenerationAgent", "QualityAgent"]
