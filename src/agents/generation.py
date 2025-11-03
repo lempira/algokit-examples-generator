@@ -1,7 +1,7 @@
 """Generation agent for creating example code from tests"""
 
-from pydantic_ai import Agent
 from pydantic import BaseModel
+from pydantic_ai import Agent
 
 from ..models.workflow import LLMConfig
 
@@ -24,8 +24,8 @@ class GenerationAgent:
 
         # Create the pydantic-ai agent
         self.agent = Agent(
-            model=llm_config.default_model,
-            result_type=GeneratedExample,
+            llm_config.default_model,
+            output_type=GeneratedExample,
             system_prompt=self._get_system_prompt(),
         )
 
@@ -66,13 +66,13 @@ import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 
 async function main() {
   console.log('=== Payment Transaction Example ===\\n')
-  
+
   // Initialize client connected to LocalNet
   const algorand = AlgorandClient.defaultLocalNet()
-  
+
   // Get sender from environment
   const sender = await algorand.account.fromEnvironment('SENDER')
-  
+
   console.log('Transaction ID:', result.txId)
 }
 
@@ -163,7 +163,7 @@ Remember:
         # Run the agent
         result = await self.agent.run(prompt)
 
-        return result.data
+        return result.output
 
     def generate_example_sync(
         self,

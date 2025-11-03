@@ -4,8 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..agents.refinement import RefinementAgent
-from ..models.phase_outputs import RefinementHistoryEntry
-from ..models.workflow import LLMConfig
+from ..models import LLMConfig, RefinementHistoryEntry
 from ..utils.json_store import JSONStore
 
 
@@ -37,7 +36,12 @@ class RefinementNode:
         Returns:
             RefinementHistoryEntry with changes applied
         """
+        print("\n=== Phase 6: Refinement ===")
+        print(f"Repository: {repository_name}")
+        print(f"Iteration: {self.iteration}")
+
         # Load quality results
+        print("\nLoading quality results...")
         quality_data = self.json_store.read_sync("05-quality.json")
         if not quality_data:
             raise ValueError("Quality results not found. Run quality phase first.")
@@ -49,16 +53,19 @@ class RefinementNode:
 
         # Get issues to fix
         issues_by_example = quality_data.get("validation_results", {}).get("issues_by_example", [])
+        print(f"Found {len(issues_by_example)} examples with issues")
 
         # Count issues before refinement
         issues_before = sum(len(ex["issues"]) for ex in issues_by_example)
+        print(f"Total issues to address: {issues_before}")
 
         # Apply fixes
         changes_applied = 0
         issues_resolved = []
         examples_updated = []
 
-        for example_issues in issues_by_example:
+        print("\nApplying refinements:")
+        for idx, example_issues in enumerate(issues_by_example, 1):
             example_id = example_issues["example_id"]
             issues = example_issues["issues"]
 
@@ -66,18 +73,34 @@ class RefinementNode:
             critical_or_high = [i for i in issues if i["severity"] in ["critical", "high"]]
 
             if critical_or_high:
+                print(f"\n  [{idx}/{len(issues_by_example)}] Fixing: {example_id}")
+                print(f"      Critical/High issues: {len(critical_or_high)}")
+
+                # Show issues being fixed
+                for issue in critical_or_high[:3]:
+                    severity_emoji = {"critical": "🔴", "high": "🟠"}.get(issue["severity"], "⚫")
+                    print(f"      {severity_emoji} {issue['type']}: {issue['description'][:60]}...")
+                if len(critical_or_high) > 3:
+                    print(f"      ... and {len(critical_or_high) - 3} more issues")
+
                 # Apply fixes
                 success = self._fix_example(example_id, critical_or_high)
 
                 if success:
                     changes_applied += 1
                     examples_updated.append(example_id)
+                    print(f"      ✅ Fixes applied successfully")
 
                     # Record resolved issues
                     for issue in critical_or_high:
                         issues_resolved.append(
                             f"Fixed {issue['type']} in {example_id}: {issue['description']}"
                         )
+                else:
+                    print(f"      ❌ Failed to apply fixes")
+            else:
+                print(f"\n  [{idx}/{len(issues_by_example)}] Skipping: {example_id}")
+                print(f"      No critical/high issues (only medium/low)")
 
         # Count issues after refinement (estimate - actual count from next QA run)
         issues_after = max(0, issues_before - len(issues_resolved))
@@ -101,6 +124,19 @@ class RefinementNode:
 
             distillation_data["refinement_history"].append(history_entry.model_dump())
             self.json_store.write_sync("03-distillation.json", distillation_data)
+
+        # Print summary
+        print("\n✅ Refinement complete:")
+        print(f"   Examples updated: {changes_applied}")
+        print(f"   Issues resolved: {len(issues_resolved)}")
+        print(f"   Issues before: {issues_before}")
+        print(f"   Issues after: {issues_after}")
+        if examples_updated:
+            print(f"\n   Updated examples:")
+            for example_id in examples_updated[:5]:
+                print(f"     • {example_id}")
+            if len(examples_updated) > 5:
+                print(f"     ... and {len(examples_updated) - 5} more")
 
         return history_entry
 
@@ -142,6 +178,7 @@ class RefinementNode:
             current_env = env_file.read_text() if env_file.exists() else None
 
             # Use agent to fix issues
+            print(f"      🤖 Running refinement agent...")
             refined = self.agent.refine_example_sync(
                 example_id=example_id,
                 issues=issues,
@@ -152,17 +189,25 @@ class RefinementNode:
             )
 
             # Write updated files
+            files_updated = []
             if refined.main_code:
                 main_file.write_text(refined.main_code)
+                files_updated.append("main.ts")
 
             if refined.readme_content:
                 readme_file.write_text(refined.readme_content)
+                files_updated.append("README.md")
 
             if refined.package_json:
                 package_file.write_text(refined.package_json)
+                files_updated.append("package.json")
 
             if refined.env_example:
                 env_file.write_text(refined.env_example)
+                files_updated.append(".env.example")
+
+            if files_updated:
+                print(f"      📝 Updated files: {', '.join(files_updated)}")
 
             return True
 

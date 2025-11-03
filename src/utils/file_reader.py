@@ -11,10 +11,10 @@ class CodeFileReader:
 
     async def read(self, file_path: str) -> str:
         """Read a file's contents
-        
+
         Args:
             file_path: Relative path from repo root or absolute path
-            
+
         Returns:
             File contents as string
         """

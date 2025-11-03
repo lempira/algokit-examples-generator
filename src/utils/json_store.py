@@ -16,7 +16,7 @@ class JSONStore:
 
     async def write(self, filename: str, data: BaseModel | dict) -> None:
         """Write data to a JSON file
-        
+
         Args:
             filename: Name of the file (e.g., "01-discovery.json")
             data: Pydantic model or dict to write
@@ -46,10 +46,10 @@ class JSONStore:
 
     async def read(self, filename: str) -> dict[str, Any]:
         """Read data from a JSON file
-        
+
         Args:
             filename: Name of the file (e.g., "01-discovery.json")
-            
+
         Returns:
             Parsed JSON data as dict
         """
@@ -73,10 +73,10 @@ class JSONStore:
 
     async def read_optional(self, filename: str) -> dict[str, Any] | None:
         """Read a JSON file if it exists, otherwise return None
-        
+
         Args:
             filename: Name of the file
-            
+
         Returns:
             Parsed JSON data or None if file doesn't exist
         """
@@ -101,4 +101,3 @@ class JSONStore:
     def exists(self, filename: str) -> bool:
         """Check if a JSON file exists"""
         return (self.output_path / filename).exists()
-

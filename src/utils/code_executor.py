@@ -33,10 +33,10 @@ class CodeExecutor:
 
     async def run(self, example_path: Path) -> ExecutionResult:
         """Execute an example
-        
+
         Args:
             example_path: Path to the example folder
-            
+
         Returns:
             ExecutionResult with execution details
         """
@@ -44,7 +44,7 @@ class CodeExecutor:
 
     def run_sync(self, example_path: Path) -> ExecutionResult:
         """Synchronous version of run
-        
+
         Looks for common entry points and executes them:
         - package.json (npm install && npm start)
         - requirements.txt (pip install && python main.py)

@@ -4,8 +4,9 @@ from datetime import datetime
 from pathlib import Path
 
 from ..agents.quality import QualityAgent
-from ..models.phase_outputs import (
+from ..models import (
     ExampleIssues,
+    LLMConfig,
     QualityIssue,
     QualityResult,
     SeveritySummary,
@@ -13,7 +14,6 @@ from ..models.phase_outputs import (
     ValidationChecks,
     ValidationResults,
 )
-from ..models.workflow import LLMConfig
 from ..utils.code_executor import CodeExecutor
 from ..utils.json_store import JSONStore
 
@@ -48,25 +48,55 @@ class QualityNode:
         Returns:
             QualityResult with validation results
         """
+        print("\n=== Phase 5: Quality Assurance ===")
+        print(f"Repository: {repository_name}")
+        print(f"Iteration: {self.iteration}")
+
         # Load generation results
+        print("\nLoading generation results...")
         generation_data = self.json_store.read_sync("04-generation.json")
         if not generation_data:
             raise ValueError("Generation results not found. Run generation phase first.")
 
         # Determine which examples to validate
         examples_to_validate = self._select_examples_to_validate(generation_data)
+        print(f"Found {len(examples_to_validate)} examples to validate")
 
         # Run validation checks
         validation_results = []
         issues_by_example = []
 
-        for example_data in examples_to_validate:
+        print("\nValidating examples:")
+        for idx, example_data in enumerate(examples_to_validate, 1):
             example_id = example_data["example_id"]
-            folder = example_data["folder"]
+            print(f"\n  [{idx}/{len(examples_to_validate)}] Validating: {example_id}")
 
-            # Run validation
-            validation_result, issues = self._validate_example(example_id, folder)
+            # Run validation (use example_id as the folder path)
+            validation_result, issues = self._validate_example(example_id, example_id)
             validation_results.append(validation_result)
+
+            # Log validation results
+            checks = validation_result["checks"]
+            passed_checks = sum(1 for v in checks.values() if v)
+            total_checks = len(checks)
+
+            if validation_result["passed"]:
+                print(f"      ✅ PASSED ({passed_checks}/{total_checks} checks)")
+            else:
+                print(f"      ❌ FAILED ({passed_checks}/{total_checks} checks)")
+                print(f"         Issues found: {len(issues.issues)}")
+                for issue in issues.issues[:3]:  # Show first 3 issues
+                    severity_emoji = {
+                        "critical": "🔴",
+                        "high": "🟠",
+                        "medium": "🟡",
+                        "low": "⚪",
+                    }.get(issue.severity, "⚫")
+                    print(
+                        f"         {severity_emoji} [{issue.severity}] {issue.type}: {issue.description[:60]}..."
+                    )
+                if len(issues.issues) > 3:
+                    print(f"         ... and {len(issues.issues) - 3} more issues")
 
             if issues.issues:
                 issues_by_example.append(issues)
@@ -111,6 +141,21 @@ class QualityNode:
         # Save to JSON
         self.json_store.write_sync("05-quality.json", result)
 
+        # Print summary
+        print("\n✅ Quality Assurance complete:")
+        print(f"   Examples validated: {final_validation_results.examples_validated}")
+        print(f"   Passed: {final_validation_results.passed} ✅")
+        print(f"   Failed: {final_validation_results.failed} ❌")
+        print("\n   Issue severity breakdown:")
+        print(f"     🔴 Critical: {severity_summary.critical}")
+        print(f"     🟠 High: {severity_summary.high}")
+        print(f"     🟡 Medium: {severity_summary.medium}")
+        print(f"     ⚪ Low: {severity_summary.low}")
+        print(f"     Total issues: {severity_summary.total}")
+        print(f"\n   Trigger refinement: {'YES' if should_trigger_refinement else 'NO'}")
+        if should_trigger_refinement:
+            print(f"   Reason: {refinement_reason}")
+
         return result
 
     def _select_examples_to_validate(self, generation_data: dict) -> list[dict]:
@@ -133,19 +178,17 @@ class QualityNode:
 
         return examples_to_validate
 
-    def _validate_example(
-        self, example_id: str, folder: str
-    ) -> tuple[dict, ExampleIssues]:
+    def _validate_example(self, example_id: str, folder: str) -> tuple[dict, ExampleIssues]:
         """Validate a single example
 
         Args:
             example_id: Example identifier
-            folder: Path to example folder
+            folder: Path to example folder (relative to examples_path)
 
         Returns:
             Tuple of (validation_result_dict, ExampleIssues)
         """
-        example_path = Path(folder)
+        example_path = self.examples_path / folder
         issues = []
 
         # Check completeness
@@ -297,9 +340,7 @@ class QualityNode:
 
         return passed
 
-    def _check_language_compliance(
-        self, example_path: Path, issues: list[QualityIssue]
-    ) -> bool:
+    def _check_language_compliance(self, example_path: Path, issues: list[QualityIssue]) -> bool:
         """Check language-specific compliance
 
         Args:
@@ -402,9 +443,7 @@ class QualityNode:
             )
             return False
 
-    def _calculate_validation_checks(
-        self, validation_results: list[dict]
-    ) -> ValidationChecks:
+    def _calculate_validation_checks(self, validation_results: list[dict]) -> ValidationChecks:
         """Calculate validation checks summary
 
         Args:
@@ -415,13 +454,9 @@ class QualityNode:
         """
         total = len(validation_results)
 
-        completeness_passed = sum(
-            1 for v in validation_results if v["checks"]["completeness"]
-        )
+        completeness_passed = sum(1 for v in validation_results if v["checks"]["completeness"])
         api_usage_passed = sum(1 for v in validation_results if v["checks"]["api_usage"])
-        language_passed = sum(
-            1 for v in validation_results if v["checks"]["language_compliance"]
-        )
+        language_passed = sum(1 for v in validation_results if v["checks"]["language_compliance"])
         artifacts_passed = sum(1 for v in validation_results if v["checks"]["artifacts"])
 
         return ValidationChecks(
@@ -553,4 +588,3 @@ class QualityNode:
             recommendations.append("All examples passed validation successfully")
 
         return recommendations
-

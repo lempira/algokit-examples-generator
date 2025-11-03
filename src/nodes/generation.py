@@ -1,17 +1,17 @@
 """Generation node for Phase 4: Example Generation"""
 
+import shutil
 from datetime import datetime
 from pathlib import Path
-import shutil
 
 from ..agents.generation import GenerationAgent
-from ..models.phase_outputs import (
+from ..models import (
     GeneratedArtifact,
     GeneratedExample,
     GenerationResult,
     GenerationSummary,
+    LLMConfig,
 )
-from ..models.workflow import LLMConfig
 from ..utils.file_reader import CodeFileReader
 from ..utils.json_store import JSONStore
 
@@ -49,46 +49,13 @@ class GenerationNode:
         if not distillation_data:
             raise ValueError("Distillation results not found. Run distillation phase first.")
 
-        # Process each example
+        # Generate all examples
         generated_examples = []
 
         for example_data in distillation_data.get("examples", []):
-            example_id = example_data["example_id"]
-            status = example_data["status"]
-
-            if status == "planned":
-                # Generate new example
-                result = self._generate_example(example_data, repository_name)
-                generated_examples.append(result)
-
-            elif status == "keep":
-                # Keep existing example
-                result = GeneratedExample(
-                    example_id=example_id,
-                    title=example_data["title"],
-                    folder=example_data["folder"],
-                    status="kept_unchanged",
-                    generated_files=[],
-                    generated_artifacts=[],
-                    generation_notes="Kept from previous run",
-                    source_tests=example_data.get("source_tests", []),
-                )
-                generated_examples.append(result)
-
-            elif status == "delete":
-                # Delete example folder
-                self._delete_example(example_data["folder"])
-                result = GeneratedExample(
-                    example_id=example_id,
-                    title=example_data["title"],
-                    folder=example_data["folder"],
-                    status="deleted",
-                    generated_files=[],
-                    generated_artifacts=[],
-                    generation_notes="Source test deleted",
-                    source_tests=example_data.get("source_tests", []),
-                )
-                generated_examples.append(result)
+            # Generate example (all have status="planned")
+            result = self._generate_example(example_data, repository_name)
+            generated_examples.append(result)
 
         # Calculate summary
         summary = self._calculate_summary(generated_examples)
@@ -117,7 +84,6 @@ class GenerationNode:
             GeneratedExample with status
         """
         example_id = example_data["example_id"]
-        folder = example_data["folder"]
 
         try:
             # Extract source test code
@@ -166,7 +132,6 @@ class GenerationNode:
             return GeneratedExample(
                 example_id=example_id,
                 title=example_data["title"],
-                folder=folder,
                 status="generated",
                 generated_files=generated_files,
                 generated_artifacts=generated_artifacts,
@@ -179,7 +144,6 @@ class GenerationNode:
             return GeneratedExample(
                 example_id=example_id,
                 title=example_data["title"],
-                folder=folder,
                 status="error",
                 generated_files=[],
                 generated_artifacts=[],
@@ -322,16 +286,6 @@ return
             # Generic placeholder
             return "# Placeholder artifact\n"
 
-    def _delete_example(self, folder: str) -> None:
-        """Delete an example folder
-
-        Args:
-            folder: Path to example folder
-        """
-        example_path = Path(folder)
-        if example_path.exists() and example_path.is_dir():
-            shutil.rmtree(example_path)
-
     def _calculate_summary(self, examples: list[GeneratedExample]) -> GenerationSummary:
         """Calculate summary statistics
 
@@ -344,14 +298,10 @@ return
         generated = sum(1 for e in examples if e.status == "generated")
         needs_review = sum(1 for e in examples if e.status == "needs_review")
         error = sum(1 for e in examples if e.status == "error")
-        kept_unchanged = sum(1 for e in examples if e.status == "kept_unchanged")
-        deleted = sum(1 for e in examples if e.status == "deleted")
 
         return GenerationSummary(
             total_examples=len(examples),
             generated=generated,
             needs_review=needs_review,
             error=error,
-            kept_unchanged=kept_unchanged,
-            deleted=deleted,
         )

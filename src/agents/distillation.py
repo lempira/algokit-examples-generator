@@ -1,9 +1,13 @@
 """Distillation agent for planning example generation"""
 
+import time
+
 from pydantic_ai import Agent
 
-from ..models.phase_outputs import ExamplePlan
-from ..models.workflow import LLMConfig
+from ..models import ExamplePlan, LLMConfig
+
+AGENT_RETRIES = 3
+MAX_TOKENS = 20000
 
 
 class DistillationAgent:
@@ -14,9 +18,11 @@ class DistillationAgent:
 
         # Create the pydantic-ai agent
         self.agent = Agent(
-            model=llm_config.default_model,
-            result_type=list[ExamplePlan],
+            llm_config.default_model,
+            output_type=list[ExamplePlan],
             system_prompt=self._get_system_prompt(),
+            retries=AGENT_RETRIES,
+            model_settings={"max_tokens": MAX_TOKENS},
         )
 
     def _get_system_prompt(self) -> str:
@@ -24,6 +30,8 @@ class DistillationAgent:
         return """You are an expert at planning code examples from test cases.
 
 Your task is to analyze test blocks and create comprehensive plans for generating user-facing examples.
+
+IMPORTANT: You must return a JSON array of example plans. Even if you find no suitable examples, return an empty array [].
 
 For each example plan:
 1. Create a clear, descriptive title based on the use case
@@ -62,6 +70,8 @@ Guidelines:
         Returns:
             List of ExamplePlan objects
         """
+        print(f"\n  Planning examples from {len(test_blocks)} test blocks...")
+
         # Prepare the prompt
         prompt = f"""Analyze these test blocks from the {repository_name} repository and create example plans:
 
@@ -73,10 +83,52 @@ Test Blocks:
 Create comprehensive plans for each example. Group related test blocks where appropriate.
 Ensure each plan has complete metadata, prerequisites, and instructions."""
 
-        # Run the agent
-        result = await self.agent.run(prompt)
+        try:
+            # Run the agent with timing
+            start_time = time.time()
+            result = await self.agent.run(prompt)
+            elapsed_time = time.time() - start_time
 
-        return result.data
+            # Log timing and results
+            print(f"  Distillation agent completed in {elapsed_time:.2f}s")
+            print(f"  Generated {len(result.output)} example plans")
+
+            # Log usage info
+            usage = result.usage()
+            print(
+                f"  Tokens: {usage.total_tokens} total "
+                f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+            )
+
+            # Log generated examples summary
+            if len(result.output) > 0:
+                print("\n  Example plans generated:")
+                for i, plan in enumerate(result.output[:5], 1):  # Show first 5
+                    complexity_emoji = {"simple": "🟢", "moderate": "🟡", "complex": "🔴"}.get(
+                        plan.complexity, "⚪"
+                    )
+                    print(f"    {i}. {complexity_emoji} {plan.title} ({plan.complexity})")
+                if len(result.output) > 5:
+                    print(f"    ... and {len(result.output) - 5} more")
+            else:
+                print("  ⚠️  WARNING: No example plans generated!")
+
+            return result.output
+
+        except Exception as e:
+            print(f"\n  ❌ Error during distillation: {e}")
+            print(f"  Error type: {type(e).__name__}")
+
+            # Try to log traceback
+            try:
+                import traceback
+
+                print("\n  Full traceback:")
+                traceback.print_exc()
+            except Exception:
+                pass
+
+            raise
 
     def plan_examples_sync(
         self,

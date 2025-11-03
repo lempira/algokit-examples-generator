@@ -23,8 +23,8 @@ class QualityAgent:
 
         # Create the pydantic-ai agent
         self.agent = Agent(
-            model=llm_config.default_model,
-            result_type=ValidationIssues,
+            llm_config.default_model,
+            output_type=ValidationIssues,
             system_prompt=self._get_system_prompt(),
         )
 
@@ -104,7 +104,7 @@ Identify all issues in each category. Return empty lists for categories with no 
         # Run the agent
         result = await self.agent.run(prompt)
 
-        return result.data
+        return result.output
 
     def validate_example_sync(
         self,
@@ -122,4 +122,3 @@ Identify all issues in each category. Return empty lists for categories with no 
                 example_id, main_code, package_json, readme_content, tsconfig_json
             )
         )
-

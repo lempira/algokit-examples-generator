@@ -1,13 +1,13 @@
 """AI agents for each workflow phase"""
 
+from . import extraction
 from .distillation import DistillationAgent
-from .extraction import ExtractionAgent
 from .generation import GenerationAgent
 from .quality import QualityAgent
 from .refinement import RefinementAgent
 
 __all__ = [
-    "ExtractionAgent",
+    "extraction",
     "DistillationAgent",
     "GenerationAgent",
     "QualityAgent",

@@ -24,8 +24,8 @@ class RefinementAgent:
 
         # Create the pydantic-ai agent
         self.agent = Agent(
-            model=llm_config.default_model,
-            result_type=RefinedFiles,
+            llm_config.default_model,
+            output_type=RefinedFiles,
             system_prompt=self._get_system_prompt(),
         )
 
@@ -138,7 +138,7 @@ Only return files that were actually modified. Set unchanged files to null."""
         # Run the agent
         result = await self.agent.run(prompt)
 
-        return result.data
+        return result.output
 
     def refine_example_sync(
         self,

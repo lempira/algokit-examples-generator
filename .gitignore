@@ -43,6 +43,13 @@ examples/*.json
 examples/*/
 !examples/.gitkeep
 
+# Development directories (keep structure, ignore contents)
+dev-inputs/*
+!dev-inputs/.gitkeep
+!dev-inputs/README.md
+dev-outputs/*
+!dev-outputs/.gitkeep
+
 # Logs
 *.log
 logs/

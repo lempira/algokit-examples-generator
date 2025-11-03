@@ -1,16 +1,9 @@
 """Minimal tests for utility classes"""
 
-
 from datetime import datetime
 
 import pytest
-
-from src.models.phase_outputs import (
-    DiscoveryResult,
-    DiscoverySummary,
-    FileStatus,
-    TestFile,
-)
+from src.models import DiscoveryResult, DiscoverySummary, TestFile
 from src.utils.code_executor import CodeExecutor
 from src.utils.file_reader import CodeFileReader
 from src.utils.json_store import JSONStore
@@ -55,33 +48,18 @@ def test_json_store_with_pydantic_model(tmp_path):
     """Test JSONStore can write Pydantic models"""
     store = JSONStore(tmp_path)
 
-    test_file = TestFile(
-        path="test.py",
-        sha256="abc123",
-        status=FileStatus.CREATED,
-        last_modified=datetime.now()
-    )
+    test_file = TestFile(path="test.py", last_modified=datetime.now())
 
-    summary = DiscoverySummary(
-        total_files_discovered=1,
-        total_files_tracked=1,
-        created=1,
-        updated=0,
-        unchanged=0,
-        deleted=0
-    )
+    summary = DiscoverySummary(total_files=1)
 
     result = DiscoveryResult(
-        timestamp=datetime.now(),
-        repository="test-repo",
-        summary=summary,
-        test_files=[test_file]
+        timestamp=datetime.now(), repository="test-repo", summary=summary, test_files=[test_file]
     )
 
     store.write_sync("discovery.json", result)
 
     read_data = store.read_sync("discovery.json")
-    assert read_data["summary"]["total_files_discovered"] == 1
+    assert read_data["summary"]["total_files"] == 1
     assert len(read_data["test_files"]) == 1
 
 
@@ -119,4 +97,3 @@ def test_code_executor_no_entry_point(tmp_path):
 
     assert not result.success
     assert "No recognized entry point" in result.error_message
-

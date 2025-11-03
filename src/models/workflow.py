@@ -11,13 +11,11 @@ if TYPE_CHECKING:
     from ..utils.file_reader import CodeFileReader
     from ..utils.json_store import JSONStore
 
-from .phase_outputs import (
-    DiscoveryResult,
-    DistillationResult,
-    ExtractionResult,
-    GenerationResult,
-    QualityResult,
-)
+from .discovery import DiscoveryResult
+from .distillation import DistillationResult
+from .extraction import ExtractionResult
+from .generation import GenerationResult
+from .quality import QualityResult
 
 
 @dataclass
@@ -36,16 +34,13 @@ class WorkflowState:
     max_refinement_iterations: int = 3
 
     # Metadata
-    test_files_changed: list[str] = field(default_factory=list)
     workflow_start_time: datetime = field(default_factory=datetime.now)
-
-    # Runtime context
-    is_incremental_run: bool = False
 
 
 @dataclass
 class LLMConfig:
     """Configuration for LLM models"""
+
     default_model: str = "anthropic:claude-3-5-sonnet-20241022"
     temperature: float = 0.7
     max_tokens: int | None = None
@@ -69,4 +64,3 @@ class WorkflowDeps:
 
     # Optional: Progress tracking
     progress_callback: Callable[[str, int], None] | None = None
-

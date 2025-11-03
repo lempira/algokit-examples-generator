@@ -4,13 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..agents.distillation import DistillationAgent
-from ..models.phase_outputs import (
-    DistillationResult,
-    DistillationSummary,
-    ExamplePlan,
-    FileStatus,
-)
-from ..models.workflow import LLMConfig
+from ..models import DistillationResult, DistillationSummary, ExamplePlan, LLMConfig
 from ..utils.json_store import JSONStore
 
 
@@ -38,37 +32,45 @@ class DistillationNode:
         Returns:
             DistillationResult with example plans
         """
+        print("\n=== Phase 3: Distillation ===")
+        print(f"Repository: {repository_name}")
+
         # Load extraction results
+        print("\nLoading extraction results...")
         extraction_data = self.json_store.read_sync("02-extraction.json")
         if not extraction_data:
             raise ValueError("Extraction results not found. Run extraction phase first.")
 
-        # Load previous distillation if exists
-        previous_distillation = self._load_previous_distillation()
+        total_blocks = sum(
+            len(analysis.get("test_blocks", []))
+            for analysis in extraction_data.get("test_analysis", [])
+        )
+        print(f"Found {total_blocks} total test blocks from extraction")
 
         # Select high-quality test blocks
+        print("\nFiltering test blocks for example generation...")
         selected_blocks = self._select_test_blocks(extraction_data)
-
-        # Determine which examples to generate
-        examples_to_plan = self._determine_examples_to_plan(
-            selected_blocks, extraction_data, previous_distillation
+        print(f"Selected {len(selected_blocks)} test blocks for planning")
+        print(
+            "  (Filtered by: example_potential=['high','medium'] + feature_classification=['user-facing','mixed'])"
         )
 
-        # Plan examples using the agent
-        planned_examples = []
-        if examples_to_plan:
-            planned_examples = self.agent.plan_examples_sync(
-                test_blocks=examples_to_plan,
+        # Plan all examples using the agent
+        examples = []
+        if selected_blocks:
+            print("\nPlanning examples with LLM agent...")
+            examples = self.agent.plan_examples_sync(
+                test_blocks=selected_blocks,
                 repository_name=repository_name,
             )
-
-        # Copy unchanged examples from previous run
-        examples = self._merge_with_previous(
-            planned_examples, previous_distillation, extraction_data
-        )
+        else:
+            print("\n⚠️  No test blocks selected - no examples will be planned")
 
         # Assign example IDs
-        examples = self._assign_example_ids(examples)
+        if examples:
+            print("\nAssigning example IDs and folders...")
+            examples = self._assign_example_ids(examples)
+            print(f"Assigned IDs to {len(examples)} examples")
 
         # Calculate summary
         summary = self._calculate_summary(examples)
@@ -85,6 +87,13 @@ class DistillationNode:
         # Save to JSON
         self.json_store.write_sync("03-distillation.json", result)
 
+        print("\n✅ Distillation complete:")
+        print(f"   Total examples planned: {summary.total_examples}")
+        print("   Complexity breakdown:")
+        print(f"     - Simple: {summary.complexity_breakdown.get('simple', 0)}")
+        print(f"     - Moderate: {summary.complexity_breakdown.get('moderate', 0)}")
+        print(f"     - Complex: {summary.complexity_breakdown.get('complex', 0)}")
+
         return result
 
     def _select_test_blocks(self, extraction_data: dict) -> list[dict]:
@@ -100,116 +109,23 @@ class DistillationNode:
 
         for analysis in extraction_data.get("test_analysis", []):
             file_path = analysis["source_file"]
-            file_status = analysis["file_status"]
 
             for block in analysis.get("test_blocks", []):
                 # Filter by potential and classification
-                if block["example_potential"] not in ["high", "medium"]:
+                if block.get("example_potential") not in ["high", "medium"]:
                     continue
 
-                if block["feature_classification"] not in ["user-facing", "mixed"]:
+                if block.get("feature_classification") not in ["user-facing", "mixed"]:
                     continue
 
                 # Add metadata for planning
                 block_with_meta = {
                     **block,
                     "source_file": file_path,
-                    "file_status": file_status,
                 }
                 selected.append(block_with_meta)
 
         return selected
-
-    def _determine_examples_to_plan(
-        self,
-        selected_blocks: list[dict],
-        extraction_data: dict,
-        previous_distillation: dict | None,
-    ) -> list[dict]:
-        """Determine which examples need planning
-
-        Args:
-            selected_blocks: Selected test blocks
-            extraction_data: Extraction results
-            previous_distillation: Previous distillation data (if exists)
-
-        Returns:
-            List of blocks that need planning
-        """
-        if not previous_distillation:
-            # First run - plan all selected blocks
-            return selected_blocks
-
-        # Build set of files with changes
-        changed_files = set()
-        for analysis in extraction_data.get("test_analysis", []):
-            file_status = analysis["file_status"]
-            if file_status in [FileStatus.CREATED.value, FileStatus.UPDATED.value]:
-                changed_files.add(analysis["source_file"])
-
-        # Select blocks from changed files
-        blocks_to_plan = [
-            block for block in selected_blocks if block["source_file"] in changed_files
-        ]
-
-        return blocks_to_plan
-
-    def _merge_with_previous(
-        self,
-        planned_examples: list[ExamplePlan],
-        previous_distillation: dict | None,
-        extraction_data: dict,
-    ) -> list[ExamplePlan]:
-        """Merge new plans with previous examples
-
-        Args:
-            planned_examples: Newly planned examples
-            previous_distillation: Previous distillation data
-            extraction_data: Extraction results
-
-        Returns:
-            Complete list of examples
-        """
-        if not previous_distillation:
-            # Set all as planned
-            for example in planned_examples:
-                example.status = "planned"
-            return planned_examples
-
-        # Build set of deleted files
-        deleted_files = set()
-        for analysis in extraction_data.get("test_analysis", []):
-            if analysis["file_status"] == FileStatus.DELETED.value:
-                deleted_files.add(analysis["source_file"])
-
-        # Get previous examples
-        all_examples = []
-
-        # Add new planned examples
-        for example in planned_examples:
-            example.status = "planned"
-            all_examples.append(example)
-
-        # Process previous examples
-        for prev_example_data in previous_distillation.get("examples", []):
-            # Check if source tests are deleted
-            source_files = {st["file"] for st in prev_example_data.get("source_tests", [])}
-
-            if source_files & deleted_files:
-                # Mark for deletion
-                prev_example = ExamplePlan.model_validate(prev_example_data)
-                prev_example.status = "delete"
-                all_examples.append(prev_example)
-            else:
-                # Check if already in new plans
-                example_id = prev_example_data.get("example_id")
-                if not any(e.example_id == example_id for e in planned_examples):
-                    # Keep as-is
-                    prev_example = ExamplePlan.model_validate(prev_example_data)
-                    prev_example.status = "keep"
-                    all_examples.append(prev_example)
-
-        return all_examples
 
     def _assign_example_ids(self, examples: list[ExamplePlan]) -> list[ExamplePlan]:
         """Assign sequential IDs to examples
@@ -230,12 +146,22 @@ class DistillationNode:
         )
 
         # Assign IDs
+        print("  Generating example IDs (sorted by complexity):")
         for idx, example in enumerate(sorted_examples, start=1):
             # Generate ID from title
             title_slug = example.title.lower().replace(" ", "-")
             title_slug = "".join(c for c in title_slug if c.isalnum() or c == "-")
             example.example_id = f"{idx:02d}-{title_slug}"
-            example.folder = f"examples/{example.example_id}"
+            example.folder = example.example_id  # Just the ID, no "examples/" prefix
+
+            complexity_emoji = {"simple": "🟢", "moderate": "🟡", "complex": "🔴"}.get(
+                example.complexity, "⚪"
+            )
+            if idx <= 10:  # Show first 10
+                print(f"    {complexity_emoji} {example.example_id}")
+
+        if len(sorted_examples) > 10:
+            print(f"    ... and {len(sorted_examples) - 10} more")
 
         return sorted_examples
 
@@ -248,26 +174,11 @@ class DistillationNode:
         Returns:
             DistillationSummary
         """
-        planned = sum(1 for e in examples if e.status == "planned")
-        keep = sum(1 for e in examples if e.status == "keep")
-        delete = sum(1 for e in examples if e.status == "delete")
-
         complexity_breakdown = {"simple": 0, "moderate": 0, "complex": 0}
         for example in examples:
             complexity_breakdown[example.complexity] += 1
 
         return DistillationSummary(
             total_examples=len(examples),
-            planned=planned,
-            keep=keep,
-            delete=delete,
             complexity_breakdown=complexity_breakdown,
         )
-
-    def _load_previous_distillation(self) -> dict | None:
-        """Load previous distillation results if they exist
-
-        Returns:
-            Previous distillation data as dict, or None if doesn't exist
-        """
-        return self.json_store.read_optional_sync("03-distillation.json")
