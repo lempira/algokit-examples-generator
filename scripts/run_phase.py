@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import settings
-from src.models import LLMConfig
+from src.models import DiscoveryResult, LLMConfig
 from src.nodes.discovery import DiscoveryNode
 from src.nodes.distillation import DistillationNode
 from src.nodes.extraction import ExtractionNode
@@ -98,8 +98,6 @@ def run_extraction(args):
 
     # Copy discovery file to output dir for node to read
     import shutil
-
-    from src.models import DiscoveryResult
 
     shutil.copy(discovery_file, output_dir / "01-discovery.json")
 
@@ -355,6 +353,159 @@ def run_refinement(args):
     print(f"  Output saved to: {output_dir / '06-refinement.json'}")
 
 
+def run_workflow(args):
+    """Run full workflow: Discovery → Extraction → Distillation → Generation → Quality → Refinement"""
+    print("=" * 80)
+    print("Running FULL WORKFLOW")
+    print("=" * 80)
+
+    repo_path = Path(args.repo).resolve()
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\nRepository: {repo_path}")
+    print(f"Output: {output_dir}")
+    print(f"Model: {args.model or settings.default_model}")
+    if args.limit_files:
+        print(f"File limit: First {args.limit_files} files only")
+    print()
+
+    # Phase 1: Discovery
+    print("\n" + "=" * 80)
+    print("PHASE 1: DISCOVERY")
+    print("=" * 80)
+
+    json_store = JSONStore(output_dir)
+
+    discovery_node = DiscoveryNode(
+        repo_path=repo_path,
+        json_store=json_store,
+        discovery_paths=settings.get_discovery_paths(),
+        filter_files=args.discovery_files,
+    )
+
+    discovery_result = discovery_node.run(args.repository_name)
+
+    # Apply file limit if specified
+    if args.limit_files and args.limit_files > 0:
+        original_count = len(discovery_result.test_files)
+        discovery_result.test_files = discovery_result.test_files[: args.limit_files]
+        discovery_result.summary.total_files = len(discovery_result.test_files)
+
+        # Re-save the filtered discovery
+        json_store.write_sync("01-discovery.json", discovery_result)
+
+        print(
+            f"\n⚠️  Limited to first {args.limit_files} files (out of {original_count} discovered)"
+        )
+        print("   Processing files:")
+        for i, tf in enumerate(discovery_result.test_files, 1):
+            print(f"     {i}. {tf.path}")
+
+    # Phase 2: Extraction
+    print("\n" + "=" * 80)
+    print("PHASE 2: EXTRACTION")
+    print("=" * 80)
+
+    file_reader = CodeFileReader(repo_path)
+    llm_config = LLMConfig(
+        default_model=args.model or settings.default_model,
+        temperature=settings.temperature,
+    )
+
+    extraction_node = ExtractionNode(
+        repo_path=repo_path,
+        json_store=json_store,
+        file_reader=file_reader,
+        llm_config=llm_config,
+    )
+
+    extraction_result = extraction_node.run(args.repository_name)
+
+    # Phase 3: Distillation
+    print("\n" + "=" * 80)
+    print("PHASE 3: DISTILLATION")
+    print("=" * 80)
+
+    distillation_node = DistillationNode(
+        repo_path=repo_path,
+        json_store=json_store,
+        llm_config=llm_config,
+    )
+
+    distillation_result = distillation_node.run(args.repository_name)
+
+    # Phase 4: Generation
+    print("\n" + "=" * 80)
+    print("PHASE 4: GENERATION")
+    print("=" * 80)
+
+    generation_node = GenerationNode(
+        repo_path=repo_path,
+        examples_path=output_dir,
+        json_store=json_store,
+        file_reader=file_reader,
+        llm_config=llm_config,
+    )
+
+    generation_result = generation_node.run(args.repository_name)
+
+    # Phase 5: Quality
+    print("\n" + "=" * 80)
+    print("PHASE 5: QUALITY")
+    print("=" * 80)
+
+    executor = CodeExecutor()
+
+    quality_node = QualityNode(
+        repo_path=repo_path,
+        examples_path=output_dir,
+        json_store=json_store,
+        executor=executor,
+        llm_config=llm_config,
+        iteration=1,
+    )
+
+    quality_result = quality_node.run(args.repository_name)
+
+    # Phase 6: Refinement (only if needed)
+    if quality_result.should_trigger_refinement:
+        print("\n" + "=" * 80)
+        print("PHASE 6: REFINEMENT")
+        print("=" * 80)
+
+        refinement_node = RefinementNode(
+            repo_path=repo_path,
+            examples_path=output_dir,
+            json_store=json_store,
+            llm_config=llm_config,
+            iteration=1,
+        )
+
+        refinement_result = refinement_node.run(args.repository_name)
+
+        print(f"\n✓ Applied {refinement_result.changes_applied} fixes")
+    else:
+        print("\n" + "=" * 80)
+        print("PHASE 6: REFINEMENT - SKIPPED")
+        print("=" * 80)
+        print("No refinement needed - all examples passed quality checks!")
+
+    # Final summary
+    print("\n" + "=" * 80)
+    print("WORKFLOW COMPLETE")
+    print("=" * 80)
+    print(f"\n✅ Successfully processed {discovery_result.summary.total_files} test files")
+    print(f"   Extracted: {extraction_result.summary.total_test_blocks} test blocks")
+    print(f"   Planned: {distillation_result.summary.total_examples} examples")
+    print(f"   Generated: {generation_result.summary.generated} examples")
+    print(f"   Validated: {quality_result.validation_results.examples_validated} examples")
+    print(f"   Total issues: {quality_result.severity_summary.total}")
+    print(f"\n   Output directory: {output_dir}")
+    print(f"   Generated examples in: {output_dir}/[example-id]/")
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run individual workflow phases with sample data",
@@ -378,8 +529,16 @@ Examples:
 
     parser.add_argument(
         "phase",
-        choices=["discovery", "extraction", "distillation", "generation", "quality", "refinement"],
-        help="Phase to run",
+        choices=[
+            "workflow",
+            "discovery",
+            "extraction",
+            "distillation",
+            "generation",
+            "quality",
+            "refinement",
+        ],
+        help="Phase to run (use 'workflow' to run all phases in sequence)",
     )
 
     parser.add_argument(
@@ -429,15 +588,23 @@ Examples:
         help="Specific files to process (extraction phase only)",
     )
 
+    parser.add_argument(
+        "--limit-files",
+        type=int,
+        help="Limit processing to first N files discovered (workflow mode only)",
+    )
+
     args = parser.parse_args()
 
     # Validate required arguments
-    if args.phase in ["discovery", "extraction", "generation"] and not args.repo:
+    if args.phase in ["workflow", "discovery", "extraction", "generation"] and not args.repo:
         parser.error(f"{args.phase} phase requires --repo argument")
 
     # Run the appropriate phase
     try:
-        if args.phase == "discovery":
+        if args.phase == "workflow":
+            run_workflow(args)
+        elif args.phase == "discovery":
             run_discovery(args)
         elif args.phase == "extraction":
             run_extraction(args)
