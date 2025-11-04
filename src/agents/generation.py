@@ -161,9 +161,30 @@ Remember:
 - Make it user-facing and production-ready"""
 
         # Run the agent
-        result = await self.agent.run(prompt)
+        import time
 
-        return result.output
+        print(f"      🤖 Running generation agent...")
+        start_time = time.time()
+
+        try:
+            result = await self.agent.run(prompt)
+            elapsed_time = time.time() - start_time
+
+            print(f"      ⏱️  Agent completed in {elapsed_time:.2f}s")
+
+            usage = result.usage()
+            print(
+                f"      📊 Tokens: {usage.total_tokens} total "
+                f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+            )
+
+            return result.output
+
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            print(f"      ❌ Agent failed after {elapsed_time:.2f}s")
+            print(f"      Error: {type(e).__name__}: {str(e)[:100]}")
+            raise
 
     def generate_example_sync(
         self,

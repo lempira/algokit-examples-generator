@@ -44,18 +44,48 @@ class GenerationNode:
         Returns:
             GenerationResult with generation status
         """
+        print("\n=== Phase 4: Generation ===")
+        print(f"Repository: {repository_name}")
+
         # Load distillation results
+        print("\nLoading distillation results...")
         distillation_data = self.json_store.read_sync("03-distillation.json")
         if not distillation_data:
             raise ValueError("Distillation results not found. Run distillation phase first.")
 
+        examples_to_generate = distillation_data.get("examples", [])
+        print(f"Found {len(examples_to_generate)} examples to generate")
+
         # Generate all examples
         generated_examples = []
 
-        for example_data in distillation_data.get("examples", []):
+        print("\nGenerating examples:")
+        for idx, example_data in enumerate(examples_to_generate, 1):
+            example_id = example_data.get("example_id", "unknown")
+            title = example_data.get("title", "Untitled")
+            complexity = example_data.get("complexity", "unknown")
+
+            complexity_emoji = {"simple": "🟢", "moderate": "🟡", "complex": "🔴"}.get(
+                complexity, "⚪"
+            )
+
+            print(f"\n  [{idx}/{len(examples_to_generate)}] {complexity_emoji} {title}")
+            print(f"      ID: {example_id}")
+
             # Generate example (all have status="planned")
             result = self._generate_example(example_data, repository_name)
             generated_examples.append(result)
+
+            # Log result
+            if result.status == "generated":
+                print("      ✅ Generated successfully")
+                print(f"         Files: {', '.join(result.generated_files)}")
+            elif result.status == "needs_review":
+                print("      ⚠️  Generated with warnings - needs review")
+            else:
+                print("      ❌ Generation failed")
+                if result.generation_notes:
+                    print(f"         Error: {result.generation_notes[:80]}...")
 
         # Calculate summary
         summary = self._calculate_summary(generated_examples)
@@ -70,6 +100,13 @@ class GenerationNode:
 
         # Save to JSON
         self.json_store.write_sync("04-generation.json", result)
+
+        # Print summary
+        print("\n✅ Generation complete:")
+        print(f"   Total examples: {summary.total_examples}")
+        print(f"   Generated: {summary.generated} ✅")
+        print(f"   Needs review: {summary.needs_review} ⚠️")
+        print(f"   Errors: {summary.error} ❌")
 
         return result
 
