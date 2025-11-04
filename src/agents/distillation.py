@@ -10,24 +10,27 @@ AGENT_RETRIES = 3
 MAX_TOKENS = 20000
 
 
-class DistillationAgent:
-    """Agent that analyzes test blocks and plans example generation"""
+def create_distillation_agent(llm_config: LLMConfig) -> Agent:
+    """Create and configure the distillation agent
 
-    def __init__(self, llm_config: LLMConfig):
-        self.llm_config = llm_config
+    Args:
+        llm_config: LLM configuration
 
-        # Create the pydantic-ai agent
-        self.agent = Agent(
-            llm_config.default_model,
-            output_type=list[ExamplePlan],
-            system_prompt=self._get_system_prompt(),
-            retries=AGENT_RETRIES,
-            model_settings={"max_tokens": MAX_TOKENS},
-        )
+    Returns:
+        Configured pydantic-ai Agent
+    """
+    return Agent(
+        llm_config.default_model,
+        output_type=list[ExamplePlan],
+        system_prompt=get_system_prompt(),
+        retries=AGENT_RETRIES,
+        model_settings={"max_tokens": MAX_TOKENS},
+    )
 
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the distillation agent"""
-        return """You are an expert at planning code examples from test cases.
+
+def get_system_prompt() -> str:
+    """Get the system prompt for the distillation agent"""
+    return """You are an expert at planning code examples from test cases.
 
 Your task is to analyze test blocks and create comprehensive plans for generating user-facing examples.
 
@@ -56,24 +59,26 @@ Guidelines:
 - Only use publicly available libraries
 - Search thoroughly for existing artifacts before planning generation"""
 
-    async def plan_examples(
-        self,
-        test_blocks: list[dict],
-        repository_name: str,
-    ) -> list[ExamplePlan]:
-        """Plan example generation from test blocks
 
-        Args:
-            test_blocks: List of test blocks to analyze
-            repository_name: Name of the repository
+async def plan_examples(
+    agent: Agent,
+    test_blocks: list[dict],
+    repository_name: str,
+) -> list[ExamplePlan]:
+    """Plan example generation from test blocks
 
-        Returns:
-            List of ExamplePlan objects
-        """
-        print(f"\n  Planning examples from {len(test_blocks)} test blocks...")
+    Args:
+        agent: Configured pydantic-ai Agent
+        test_blocks: List of test blocks to analyze
+        repository_name: Name of the repository
 
-        # Prepare the prompt
-        prompt = f"""Analyze these test blocks from the {repository_name} repository and create example plans:
+    Returns:
+        List of ExamplePlan objects
+    """
+    print(f"\n  Planning examples from {len(test_blocks)} test blocks...")
+
+    # Prepare the prompt
+    prompt = f"""Analyze these test blocks from the {repository_name} repository and create example plans:
 
 Test Blocks:
 ```json
@@ -83,59 +88,62 @@ Test Blocks:
 Create comprehensive plans for each example. Group related test blocks where appropriate.
 Ensure each plan has complete metadata, prerequisites, and instructions."""
 
+    try:
+        # Run the agent with timing
+        print("  🤖 Running distillation agent...")
+        start_time = time.time()
+        result = await agent.run(prompt)
+        elapsed_time = time.time() - start_time
+
+        # Log timing and results
+        print(f"  ⏱️  Agent completed in {elapsed_time:.2f}s")
+        print(f"  Generated {len(result.output)} example plans")
+
+        # Log usage info
+        usage = result.usage()
+        print(
+            f"  📊 Tokens: {usage.total_tokens} total "
+            f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+        )
+
+        # Log generated examples summary
+        if len(result.output) > 0:
+            print("\n  Example plans generated:")
+            for i, plan in enumerate(result.output[:5], 1):  # Show first 5
+                complexity_emoji = {"simple": "🟢", "moderate": "🟡", "complex": "🔴"}.get(
+                    plan.complexity, "⚪"
+                )
+                print(f"    {i}. {complexity_emoji} {plan.title} ({plan.complexity})")
+            if len(result.output) > 5:
+                print(f"    ... and {len(result.output) - 5} more")
+        else:
+            print("  ⚠️  WARNING: No example plans generated!")
+
+        return result.output
+
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        print(f"\n  ❌ Agent failed after {elapsed_time:.2f}s")
+        print(f"  Error type: {type(e).__name__}: {str(e)[:100]}")
+
+        # Try to log traceback
         try:
-            # Run the agent with timing
-            start_time = time.time()
-            result = await self.agent.run(prompt)
-            elapsed_time = time.time() - start_time
+            import traceback
 
-            # Log timing and results
-            print(f"  Distillation agent completed in {elapsed_time:.2f}s")
-            print(f"  Generated {len(result.output)} example plans")
+            print("\n  Full traceback:")
+            traceback.print_exc()
+        except Exception:
+            pass
 
-            # Log usage info
-            usage = result.usage()
-            print(
-                f"  Tokens: {usage.total_tokens} total "
-                f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
-            )
+        raise
 
-            # Log generated examples summary
-            if len(result.output) > 0:
-                print("\n  Example plans generated:")
-                for i, plan in enumerate(result.output[:5], 1):  # Show first 5
-                    complexity_emoji = {"simple": "🟢", "moderate": "🟡", "complex": "🔴"}.get(
-                        plan.complexity, "⚪"
-                    )
-                    print(f"    {i}. {complexity_emoji} {plan.title} ({plan.complexity})")
-                if len(result.output) > 5:
-                    print(f"    ... and {len(result.output) - 5} more")
-            else:
-                print("  ⚠️  WARNING: No example plans generated!")
 
-            return result.output
+def plan_examples_sync(
+    agent: Agent,
+    test_blocks: list[dict],
+    repository_name: str,
+) -> list[ExamplePlan]:
+    """Synchronous version of plan_examples"""
+    import asyncio
 
-        except Exception as e:
-            print(f"\n  ❌ Error during distillation: {e}")
-            print(f"  Error type: {type(e).__name__}")
-
-            # Try to log traceback
-            try:
-                import traceback
-
-                print("\n  Full traceback:")
-                traceback.print_exc()
-            except Exception:
-                pass
-
-            raise
-
-    def plan_examples_sync(
-        self,
-        test_blocks: list[dict],
-        repository_name: str,
-    ) -> list[ExamplePlan]:
-        """Synchronous version of plan_examples"""
-        import asyncio
-
-        return asyncio.run(self.plan_examples(test_blocks, repository_name))
+    return asyncio.run(plan_examples(agent, test_blocks, repository_name))

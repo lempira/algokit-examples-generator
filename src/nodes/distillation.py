@@ -3,7 +3,9 @@
 from datetime import datetime
 from pathlib import Path
 
-from ..agents.distillation import DistillationAgent
+from pydantic_ai import Agent
+
+from ..agents import distillation
 from ..models import DistillationResult, DistillationSummary, ExamplePlan, LLMConfig
 from ..utils.json_store import JSONStore
 
@@ -16,12 +18,14 @@ class DistillationNode:
         repo_path: Path,
         json_store: JSONStore,
         llm_config: LLMConfig,
-        agent: DistillationAgent | None = None,
+        agent: Agent | None = None,
     ):
         self.repo_path = repo_path
         self.json_store = json_store
         self.llm_config = llm_config
-        self.agent = agent if agent is not None else DistillationAgent(llm_config)
+        self.agent = (
+            agent if agent is not None else distillation.create_distillation_agent(llm_config)
+        )
 
     def run(self, repository_name: str) -> DistillationResult:
         """Execute distillation phase
@@ -59,7 +63,8 @@ class DistillationNode:
         examples = []
         if selected_blocks:
             print("\nPlanning examples with LLM agent...")
-            examples = self.agent.plan_examples_sync(
+            examples = distillation.plan_examples_sync(
+                agent=self.agent,
                 test_blocks=selected_blocks,
                 repository_name=repository_name,
             )

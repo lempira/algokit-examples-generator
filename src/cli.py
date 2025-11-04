@@ -67,6 +67,13 @@ For more information, visit: https://github.com/algorandfoundation/algokit-examp
         help="Enable verbose output",
     )
 
+    parser.add_argument(
+        "--limit-files",
+        type=int,
+        dest="limit_files",
+        help="Limit processing to first N files discovered (useful for testing)",
+    )
+
     args = parser.parse_args()
 
     # Resolve paths - CLI args override config
@@ -106,6 +113,8 @@ For more information, visit: https://github.com/algorandfoundation/algokit-examp
     print(f"Model: {model}")
     print(f"Temperature: {settings.temperature}")
     print(f"Max Refinement Iterations: {settings.max_refinement_iterations}")
+    if args.limit_files:
+        print(f"File Limit: First {args.limit_files} files only")
     print("=" * 60)
     print()
 
@@ -117,6 +126,7 @@ For more information, visit: https://github.com/algorandfoundation/algokit-examp
             llm_model=model,
             temperature=settings.temperature,
             max_refinement_iterations=settings.max_refinement_iterations,
+            limit_files=args.limit_files,
         )
 
         workflow.run(repository_name)

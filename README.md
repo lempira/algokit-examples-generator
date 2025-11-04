@@ -47,6 +47,9 @@ uv run algokit-examples-gen --model anthropic:claude-3-5-sonnet-20241022
 
 # 5. Specify custom output directory
 uv run algokit-examples-gen --output ./my-examples
+
+# 6. Test with limited files for quick iteration
+uv run algokit-examples-gen --limit-files 3
 ```
 
 ## Usage
@@ -56,7 +59,7 @@ uv run algokit-examples-gen --output ./my-examples
 **Note**: All CLI commands must be prefixed with `uv run` to use the virtual environment.
 
 ```
-usage: uv run algokit-examples-gen [-h] [-o OUTPUT_PATH] [-m MODEL] [-v] [--verbose] [repo_path]
+usage: uv run algokit-examples-gen [-h] [-o OUTPUT_PATH] [-m MODEL] [-v] [--verbose] [--limit-files N] [repo_path]
 
 positional arguments:
   repo_path             Path to the repository (default: current directory)
@@ -69,6 +72,7 @@ options:
                         LLM model to use (default: anthropic:claude-3-5-sonnet-20241022)
   -v, --version         show program's version number and exit
   --verbose             Enable verbose output
+  --limit-files N       Limit processing to first N files discovered (useful for testing)
 ```
 
 **Examples:**
@@ -85,6 +89,9 @@ uv run algokit-examples-gen
 
 # Generate with verbose output
 uv run algokit-examples-gen --verbose
+
+# Test with limited files (useful for quick iteration)
+uv run algokit-examples-gen --limit-files 3
 ```
 
 ### Python API
@@ -97,7 +104,8 @@ from src import create_workflow
 workflow = create_workflow(
     repo_path=Path("/path/to/repo"),
     examples_output_path=Path("./examples"),
-    llm_model="anthropic:claude-3-5-sonnet-20241022"
+    llm_model="anthropic:claude-3-5-sonnet-20241022",
+    limit_files=3  # Optional: limit to first N files for testing
 )
 
 # Run workflow

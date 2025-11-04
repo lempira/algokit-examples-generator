@@ -20,15 +20,19 @@ from .utils.json_store import JSONStore
 class ExampleGenerationWorkflow:
     """Orchestrates the complete test-to-example extraction workflow"""
 
-    def __init__(self, deps: WorkflowDeps, max_refinement_iterations: int = 3):
+    def __init__(
+        self, deps: WorkflowDeps, max_refinement_iterations: int = 3, limit_files: int | None = None
+    ):
         """Initialize workflow with dependencies
 
         Args:
             deps: Workflow dependencies (paths, utilities, config)
             max_refinement_iterations: Maximum number of refinement iterations
+            limit_files: Optional limit on number of files to process
         """
         self.deps = deps
         self.state = WorkflowState(max_refinement_iterations=max_refinement_iterations)
+        self.limit_files = limit_files
 
     def run(self, repository_name: str) -> WorkflowState:
         """Execute the complete workflow
@@ -132,7 +136,26 @@ class ExampleGenerationWorkflow:
             json_store=self.deps.json_store,
             discovery_paths=settings.get_discovery_paths(),
         )
-        return node.run(repository_name)
+        discovery_result = node.run(repository_name)
+
+        # Apply file limit if specified
+        if self.limit_files and self.limit_files > 0:
+            original_count = len(discovery_result.test_files)
+            discovery_result.test_files = discovery_result.test_files[: self.limit_files]
+            discovery_result.summary.total_files = len(discovery_result.test_files)
+
+            # Re-save the filtered discovery
+            self.deps.json_store.write_sync("01-discovery.json", discovery_result)
+
+            print(
+                f"\n⚠️  Limited to first {self.limit_files} files (out of {original_count} discovered)"
+            )
+            print("   Processing files:")
+            for i, tf in enumerate(discovery_result.test_files, 1):
+                print(f"     {i}. {tf.path}")
+            print()
+
+        return discovery_result
 
     def _run_extraction(self, repository_name: str):
         """Run Phase 2: Extraction"""
@@ -194,6 +217,7 @@ def create_workflow(
     llm_model: str | None = None,
     temperature: float = 0.7,
     max_refinement_iterations: int = 3,
+    limit_files: int | None = None,
 ) -> ExampleGenerationWorkflow:
     """Create a workflow instance with default dependencies
 
@@ -203,6 +227,7 @@ def create_workflow(
         llm_model: LLM model to use (default: claude-3-5-sonnet-20241022)
         temperature: LLM temperature setting (default: 0.7)
         max_refinement_iterations: Maximum refinement iterations (default: 3)
+        limit_files: Optional limit on number of files to process (default: None)
 
     Returns:
         Configured ExampleGenerationWorkflow
@@ -226,4 +251,4 @@ def create_workflow(
         ),
     )
 
-    return ExampleGenerationWorkflow(deps, max_refinement_iterations)
+    return ExampleGenerationWorkflow(deps, max_refinement_iterations, limit_files)
