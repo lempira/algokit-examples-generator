@@ -1,9 +1,14 @@
 """Generation agent for creating example code from tests"""
 
+import time
+
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from ..models.workflow import LLMConfig
+
+AGENT_RETRIES = 3
+MODEL_MAX_TOKENS = 20000
 
 
 class GeneratedExample(BaseModel):
@@ -16,22 +21,27 @@ class GeneratedExample(BaseModel):
     env_example: str | None = None
 
 
-class GenerationAgent:
-    """Agent that transforms test code into runnable examples"""
+def create_generation_agent(llm_config: LLMConfig) -> Agent:
+    """Create and configure the generation agent
 
-    def __init__(self, llm_config: LLMConfig):
-        self.llm_config = llm_config
+    Args:
+        llm_config: LLM configuration
 
-        # Create the pydantic-ai agent
-        self.agent = Agent(
-            llm_config.default_model,
-            output_type=GeneratedExample,
-            system_prompt=self._get_system_prompt(),
-        )
+    Returns:
+        Configured pydantic-ai Agent
+    """
+    return Agent(
+        llm_config.default_model,
+        output_type=GeneratedExample,
+        system_prompt=get_system_prompt(),
+        retries=AGENT_RETRIES,
+        model_settings={"max_tokens": MODEL_MAX_TOKENS},
+    )
 
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the generation agent"""
-        return """You are an expert at transforming test code into clean, user-facing examples.
+
+def get_system_prompt() -> str:
+    """Get the system prompt for the generation agent"""
+    return """You are an expert at transforming test code into clean, user-facing examples.
 
 CRITICAL RULES (NEVER VIOLATE):
 1. ONLY import from '@algorandfoundation/algokit-utils' - NEVER import algosdk or algosdk types
@@ -115,22 +125,24 @@ TSCONFIG.JSON TEMPLATE:
 }
 ```"""
 
-    async def generate_example(
-        self,
-        example_plan: dict,
-        source_test_code: str,
-    ) -> GeneratedExample:
-        """Generate example code from test code
 
-        Args:
-            example_plan: Example plan from distillation
-            source_test_code: Source test code to transform
+async def generate_example(
+    agent: Agent,
+    example_plan: dict,
+    source_test_code: str,
+) -> GeneratedExample:
+    """Generate example code from test code
 
-        Returns:
-            GeneratedExample with all files
-        """
-        # Prepare the prompt
-        prompt = f"""Transform this test code into a clean, runnable example.
+    Args:
+        agent: Configured pydantic-ai Agent
+        example_plan: Example plan from distillation
+        source_test_code: Source test code to transform
+
+    Returns:
+        GeneratedExample with all files
+    """
+    # Prepare the prompt
+    prompt = f"""Transform this test code into a clean, runnable example.
 
 Example Plan:
 - Title: {example_plan["title"]}
@@ -160,38 +172,37 @@ Remember:
 - Remove all test code
 - Make it user-facing and production-ready"""
 
-        # Run the agent
-        import time
+    # Run the agent
+    print("      🤖 Running generation agent...")
+    start_time = time.time()
 
-        print(f"      🤖 Running generation agent...")
-        start_time = time.time()
+    try:
+        result = await agent.run(prompt)
+        elapsed_time = time.time() - start_time
 
-        try:
-            result = await self.agent.run(prompt)
-            elapsed_time = time.time() - start_time
+        print(f"      ⏱️  Agent completed in {elapsed_time:.2f}s")
 
-            print(f"      ⏱️  Agent completed in {elapsed_time:.2f}s")
+        usage = result.usage()
+        print(
+            f"      📊 Tokens: {usage.total_tokens} total "
+            f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+        )
 
-            usage = result.usage()
-            print(
-                f"      📊 Tokens: {usage.total_tokens} total "
-                f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
-            )
+        return result.output
 
-            return result.output
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        print(f"      ❌ Agent failed after {elapsed_time:.2f}s")
+        print(f"      Error: {type(e).__name__}: {str(e)[:100]}")
+        raise
 
-        except Exception as e:
-            elapsed_time = time.time() - start_time
-            print(f"      ❌ Agent failed after {elapsed_time:.2f}s")
-            print(f"      Error: {type(e).__name__}: {str(e)[:100]}")
-            raise
 
-    def generate_example_sync(
-        self,
-        example_plan: dict,
-        source_test_code: str,
-    ) -> GeneratedExample:
-        """Synchronous version of generate_example"""
-        import asyncio
+def generate_example_sync(
+    agent: Agent,
+    example_plan: dict,
+    source_test_code: str,
+) -> GeneratedExample:
+    """Synchronous version of generate_example"""
+    import asyncio
 
-        return asyncio.run(self.generate_example(example_plan, source_test_code))
+    return asyncio.run(generate_example(agent, example_plan, source_test_code))

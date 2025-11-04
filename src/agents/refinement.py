@@ -1,9 +1,14 @@
 """Refinement agent for fixing issues in generated examples"""
 
+import time
+
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from ..models.workflow import LLMConfig
+
+AGENT_RETRIES = 3
+MODEL_MAX_TOKENS = 20000
 
 
 class RefinedFiles(BaseModel):
@@ -16,22 +21,27 @@ class RefinedFiles(BaseModel):
     notes: str = ""
 
 
-class RefinementAgent:
-    """Agent that fixes issues in generated examples"""
+def create_refinement_agent(llm_config: LLMConfig) -> Agent:
+    """Create and configure the refinement agent
 
-    def __init__(self, llm_config: LLMConfig):
-        self.llm_config = llm_config
+    Args:
+        llm_config: LLM configuration
 
-        # Create the pydantic-ai agent
-        self.agent = Agent(
-            llm_config.default_model,
-            output_type=RefinedFiles,
-            system_prompt=self._get_system_prompt(),
-        )
+    Returns:
+        Configured pydantic-ai Agent
+    """
+    return Agent(
+        llm_config.default_model,
+        output_type=RefinedFiles,
+        system_prompt=get_system_prompt(),
+        retries=AGENT_RETRIES,
+        model_settings={"max_tokens": MODEL_MAX_TOKENS},
+    )
 
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the refinement agent"""
-        return """You are an expert code reviewer and fixer specializing in example refinement.
+
+def get_system_prompt() -> str:
+    """Get the system prompt for the refinement agent"""
+    return """You are an expert code reviewer and fixer specializing in example refinement.
 
 Your task is to fix issues in generated code examples based on quality feedback.
 
@@ -66,38 +76,40 @@ Fix: Update package.json to use correct dependency path
 
 Be precise and surgical - only fix what's broken."""
 
-    async def refine_example(
-        self,
-        example_id: str,
-        issues: list[dict],
-        current_main_code: str,
-        current_readme: str,
-        current_package_json: str,
-        current_env_example: str | None,
-    ) -> RefinedFiles:
-        """Refine an example by fixing issues
 
-        Args:
-            example_id: Example identifier
-            issues: List of issues to fix
-            current_main_code: Current main.ts code
-            current_readme: Current README.md
-            current_package_json: Current package.json
-            current_env_example: Current .env.example (if exists)
+async def refine_example(
+    agent: Agent,
+    example_id: str,
+    issues: list[dict],
+    current_main_code: str,
+    current_readme: str,
+    current_package_json: str,
+    current_env_example: str | None,
+) -> RefinedFiles:
+    """Refine an example by fixing issues
 
-        Returns:
-            RefinedFiles with fixed content
-        """
-        # Prepare issues description
-        issues_text = "\n".join(
-            [
-                f"- [{issue['severity']}] {issue['description']}\n  Fix: {issue['recommendation']}"
-                for issue in issues
-            ]
-        )
+    Args:
+        agent: Configured pydantic-ai Agent
+        example_id: Example identifier
+        issues: List of issues to fix
+        current_main_code: Current main.ts code
+        current_readme: Current README.md
+        current_package_json: Current package.json
+        current_env_example: Current .env.example (if exists)
 
-        # Prepare the prompt
-        prompt = f"""Fix the following issues in this example.
+    Returns:
+        RefinedFiles with fixed content
+    """
+    # Prepare issues description
+    issues_text = "\n".join(
+        [
+            f"- [{issue['severity']}] {issue['description']}\n  Fix: {issue['recommendation']}"
+            for issue in issues
+        ]
+    )
+
+    # Prepare the prompt
+    prompt = f"""Fix the following issues in this example.
 
 Example ID: {example_id}
 
@@ -135,30 +147,51 @@ Return:
 
 Only return files that were actually modified. Set unchanged files to null."""
 
-        # Run the agent
-        result = await self.agent.run(prompt)
+    # Run the agent
+    print("      🤖 Running refinement agent...")
+    start_time = time.time()
+
+    try:
+        result = await agent.run(prompt)
+        elapsed_time = time.time() - start_time
+
+        print(f"      ⏱️  Agent completed in {elapsed_time:.2f}s")
+
+        usage = result.usage()
+        print(
+            f"      📊 Tokens: {usage.total_tokens} total "
+            f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+        )
 
         return result.output
 
-    def refine_example_sync(
-        self,
-        example_id: str,
-        issues: list[dict],
-        current_main_code: str,
-        current_readme: str,
-        current_package_json: str,
-        current_env_example: str | None,
-    ) -> RefinedFiles:
-        """Synchronous version of refine_example"""
-        import asyncio
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        print(f"      ❌ Agent failed after {elapsed_time:.2f}s")
+        print(f"      Error: {type(e).__name__}: {str(e)[:100]}")
+        raise
 
-        return asyncio.run(
-            self.refine_example(
-                example_id,
-                issues,
-                current_main_code,
-                current_readme,
-                current_package_json,
-                current_env_example,
-            )
+
+def refine_example_sync(
+    agent: Agent,
+    example_id: str,
+    issues: list[dict],
+    current_main_code: str,
+    current_readme: str,
+    current_package_json: str,
+    current_env_example: str | None,
+) -> RefinedFiles:
+    """Synchronous version of refine_example"""
+    import asyncio
+
+    return asyncio.run(
+        refine_example(
+            agent,
+            example_id,
+            issues,
+            current_main_code,
+            current_readme,
+            current_package_json,
+            current_env_example,
         )
+    )

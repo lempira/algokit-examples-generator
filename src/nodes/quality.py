@@ -3,7 +3,9 @@
 from datetime import datetime
 from pathlib import Path
 
-from ..agents.quality import QualityAgent
+from pydantic_ai import Agent
+
+from ..agents import quality
 from ..models import (
     ExampleIssues,
     LLMConfig,
@@ -28,7 +30,7 @@ class QualityNode:
         json_store: JSONStore,
         executor: CodeExecutor,
         llm_config: LLMConfig,
-        agent: QualityAgent | None = None,
+        agent: Agent | None = None,
         iteration: int = 1,
     ):
         self.repo_path = repo_path
@@ -36,7 +38,7 @@ class QualityNode:
         self.json_store = json_store
         self.executor = executor
         self.llm_config = llm_config
-        self.agent = agent if agent is not None else QualityAgent(llm_config)
+        self.agent = agent if agent is not None else quality.create_quality_agent(llm_config)
         self.iteration = iteration
 
     def run(self, repository_name: str) -> QualityResult:

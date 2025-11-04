@@ -1,9 +1,14 @@
 """Quality agent for validating generated examples"""
 
+import time
+
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from ..models.workflow import LLMConfig
+
+AGENT_RETRIES = 3
+MODEL_MAX_TOKENS = 20000
 
 
 class ValidationIssues(BaseModel):
@@ -15,22 +20,27 @@ class ValidationIssues(BaseModel):
     general_issues: list[str]
 
 
-class QualityAgent:
-    """Agent that validates generated examples for quality issues"""
+def create_quality_agent(llm_config: LLMConfig) -> Agent:
+    """Create and configure the quality agent
 
-    def __init__(self, llm_config: LLMConfig):
-        self.llm_config = llm_config
+    Args:
+        llm_config: LLM configuration
 
-        # Create the pydantic-ai agent
-        self.agent = Agent(
-            llm_config.default_model,
-            output_type=ValidationIssues,
-            system_prompt=self._get_system_prompt(),
-        )
+    Returns:
+        Configured pydantic-ai Agent
+    """
+    return Agent(
+        llm_config.default_model,
+        output_type=ValidationIssues,
+        system_prompt=get_system_prompt(),
+        retries=AGENT_RETRIES,
+        model_settings={"max_tokens": MODEL_MAX_TOKENS},
+    )
 
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the quality agent"""
-        return """You are an expert code reviewer specializing in example validation.
+
+def get_system_prompt() -> str:
+    """Get the system prompt for the quality agent"""
+    return """You are an expert code reviewer specializing in example validation.
 
 Your task is to analyze generated code examples and identify issues in these categories:
 
@@ -54,28 +64,30 @@ For each issue found, provide:
 
 Be thorough but focus on issues that prevent the example from running or being useful."""
 
-    async def validate_example(
-        self,
-        example_id: str,
-        main_code: str,
-        package_json: str,
-        readme_content: str,
-        tsconfig_json: str,
-    ) -> ValidationIssues:
-        """Validate a generated example
 
-        Args:
-            example_id: Example identifier
-            main_code: Main TypeScript code
-            package_json: package.json content
-            readme_content: README.md content
-            tsconfig_json: tsconfig.json content
+async def validate_example(
+    agent: Agent,
+    example_id: str,
+    main_code: str,
+    package_json: str,
+    readme_content: str,
+    tsconfig_json: str,
+) -> ValidationIssues:
+    """Validate a generated example
 
-        Returns:
-            ValidationIssues with found issues
-        """
-        # Prepare the prompt
-        prompt = f"""Validate this generated example for quality issues.
+    Args:
+        agent: Configured pydantic-ai Agent
+        example_id: Example identifier
+        main_code: Main TypeScript code
+        package_json: package.json content
+        readme_content: README.md content
+        tsconfig_json: tsconfig.json content
+
+    Returns:
+        ValidationIssues with found issues
+    """
+    # Prepare the prompt
+    prompt = f"""Validate this generated example for quality issues.
 
 Example ID: {example_id}
 
@@ -101,24 +113,42 @@ tsconfig.json:
 
 Identify all issues in each category. Return empty lists for categories with no issues."""
 
-        # Run the agent
-        result = await self.agent.run(prompt)
+    # Run the agent
+    print("      🤖 Running quality validation agent...")
+    start_time = time.time()
+
+    try:
+        result = await agent.run(prompt)
+        elapsed_time = time.time() - start_time
+
+        print(f"      ⏱️  Agent completed in {elapsed_time:.2f}s")
+
+        usage = result.usage()
+        print(
+            f"      📊 Tokens: {usage.total_tokens} total "
+            f"(request: {usage.request_tokens}, response: {usage.response_tokens})"
+        )
 
         return result.output
 
-    def validate_example_sync(
-        self,
-        example_id: str,
-        main_code: str,
-        package_json: str,
-        readme_content: str,
-        tsconfig_json: str,
-    ) -> ValidationIssues:
-        """Synchronous version of validate_example"""
-        import asyncio
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        print(f"      ❌ Agent failed after {elapsed_time:.2f}s")
+        print(f"      Error: {type(e).__name__}: {str(e)[:100]}")
+        raise
 
-        return asyncio.run(
-            self.validate_example(
-                example_id, main_code, package_json, readme_content, tsconfig_json
-            )
-        )
+
+def validate_example_sync(
+    agent: Agent,
+    example_id: str,
+    main_code: str,
+    package_json: str,
+    readme_content: str,
+    tsconfig_json: str,
+) -> ValidationIssues:
+    """Synchronous version of validate_example"""
+    import asyncio
+
+    return asyncio.run(
+        validate_example(agent, example_id, main_code, package_json, readme_content, tsconfig_json)
+    )

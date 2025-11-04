@@ -3,7 +3,9 @@
 from datetime import datetime
 from pathlib import Path
 
-from ..agents.refinement import RefinementAgent
+from pydantic_ai import Agent
+
+from ..agents import refinement
 from ..models import LLMConfig, RefinementHistoryEntry
 from ..utils.json_store import JSONStore
 
@@ -17,14 +19,14 @@ class RefinementNode:
         examples_path: Path,
         json_store: JSONStore,
         llm_config: LLMConfig,
-        agent: RefinementAgent | None = None,
+        agent: Agent | None = None,
         iteration: int = 1,
     ):
         self.repo_path = repo_path
         self.examples_path = examples_path
         self.json_store = json_store
         self.llm_config = llm_config
-        self.agent = agent if agent is not None else RefinementAgent(llm_config)
+        self.agent = agent if agent is not None else refinement.create_refinement_agent(llm_config)
         self.iteration = iteration
 
     def run(self, repository_name: str) -> RefinementHistoryEntry:
@@ -89,7 +91,7 @@ class RefinementNode:
                 if success:
                     changes_applied += 1
                     examples_updated.append(example_id)
-                    print(f"      ✅ Fixes applied successfully")
+                    print("      ✅ Fixes applied successfully")
 
                     # Record resolved issues
                     for issue in critical_or_high:
@@ -97,10 +99,10 @@ class RefinementNode:
                             f"Fixed {issue['type']} in {example_id}: {issue['description']}"
                         )
                 else:
-                    print(f"      ❌ Failed to apply fixes")
+                    print("      ❌ Failed to apply fixes")
             else:
                 print(f"\n  [{idx}/{len(issues_by_example)}] Skipping: {example_id}")
-                print(f"      No critical/high issues (only medium/low)")
+                print("      No critical/high issues (only medium/low)")
 
         # Count issues after refinement (estimate - actual count from next QA run)
         issues_after = max(0, issues_before - len(issues_resolved))
@@ -132,7 +134,7 @@ class RefinementNode:
         print(f"   Issues before: {issues_before}")
         print(f"   Issues after: {issues_after}")
         if examples_updated:
-            print(f"\n   Updated examples:")
+            print("\n   Updated examples:")
             for example_id in examples_updated[:5]:
                 print(f"     • {example_id}")
             if len(examples_updated) > 5:
@@ -178,8 +180,8 @@ class RefinementNode:
             current_env = env_file.read_text() if env_file.exists() else None
 
             # Use agent to fix issues
-            print(f"      🤖 Running refinement agent...")
-            refined = self.agent.refine_example_sync(
+            refined = refinement.refine_example_sync(
+                agent=self.agent,
                 example_id=example_id,
                 issues=issues,
                 current_main_code=current_main,

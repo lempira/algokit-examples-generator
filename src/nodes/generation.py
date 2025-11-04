@@ -4,7 +4,9 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from ..agents.generation import GenerationAgent
+from pydantic_ai import Agent
+
+from ..agents import generation
 from ..models import (
     GeneratedArtifact,
     GeneratedExample,
@@ -26,14 +28,14 @@ class GenerationNode:
         json_store: JSONStore,
         file_reader: CodeFileReader,
         llm_config: LLMConfig,
-        agent: GenerationAgent | None = None,
+        agent: Agent | None = None,
     ):
         self.repo_path = repo_path
         self.examples_path = examples_path
         self.json_store = json_store
         self.file_reader = file_reader
         self.llm_config = llm_config
-        self.agent = agent if agent is not None else GenerationAgent(llm_config)
+        self.agent = agent if agent is not None else generation.create_generation_agent(llm_config)
 
     def run(self, repository_name: str) -> GenerationResult:
         """Execute generation phase
@@ -127,7 +129,8 @@ class GenerationNode:
             source_test_code = self._extract_test_code(example_data.get("source_tests", []))
 
             # Generate example using agent
-            generated = self.agent.generate_example_sync(
+            generated = generation.generate_example_sync(
+                agent=self.agent,
                 example_plan=example_data,
                 source_test_code=source_test_code,
             )
